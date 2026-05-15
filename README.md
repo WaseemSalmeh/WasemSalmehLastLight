@@ -26,3 +26,14 @@ Top-level asset organization:
 - `Assets/Scripts/Gameplay`
 - `Assets/Scripts/UI`
 - `Assets/Scripts/Editor`
+
+Current progress:
+- Unity project repo is initialized and connected to GitHub
+- asset folders are organized
+- core runtime scripts are added
+- save/settings models are added
+- audio manager is added
+- horizontal and vertical gameplay config parity is added
+
+Current blocker:
+- the Unity editor is still open on this project, so scene generation and compile validation are blocked until it is closed
