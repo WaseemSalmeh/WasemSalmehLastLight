@@ -15,9 +15,3 @@ Added the first runtime scripts for app state, save data, audio, and gameplay se
 
 ### GitHub sync
 Connected the project history with the GitHub repository and synced the main branch.
-
-### Readme update
-Shortened the project text and removed extra notes.
-
-### Readme cleanup
-Rewrote the readme into a simple progress format with short titles and descriptions.
