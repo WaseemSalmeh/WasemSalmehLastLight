@@ -26,4 +26,3 @@ Top-level asset organization:
 - `Assets/Scripts/Gameplay`
 - `Assets/Scripts/UI`
 - `Assets/Scripts/Editor`
-
