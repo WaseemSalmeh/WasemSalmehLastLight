@@ -136,6 +136,11 @@ namespace LastLight.Core
             StartCoroutine(PlayClipAfterDelay(clip, delay));
         }
 
+        private void PlayGenerated(ScheduledClip scheduledClip)
+        {
+            PlayGenerated(scheduledClip.clip, scheduledClip.delay);
+        }
+
         private IEnumerator PlayToneSequence(params ScheduledClip[] sequence)
         {
             foreach (var scheduled in sequence)
