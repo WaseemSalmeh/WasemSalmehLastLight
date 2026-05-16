@@ -48,12 +48,31 @@ namespace LastLight.Core
 
         public void Opening()
         {
-            PlaySample(gameOpeningClip);
+            if (gameOpeningClip != null)
+            {
+                PlaySample(gameOpeningClip);
+                return;
+            }
+
+            StartCoroutine(PlayToneSequence(
+                CreateTone(220f, 640f, 0.52f, Waveform.Triangle, 0.075f),
+                CreateTone(660f, 1320f, 0.38f, Waveform.Sine, 0.04f, 0.04f),
+                CreateTone(110f, 82f, 0.4f, Waveform.Sine, 0.032f)
+            ));
         }
 
         public void Option()
         {
-            PlaySample(menuOptionClip);
+            if (menuOptionClip != null)
+            {
+                PlaySample(menuOptionClip);
+                return;
+            }
+
+            StartCoroutine(PlayToneSequence(
+                CreateTone(520f, 680f, 0.16f, Waveform.Triangle, 0.085f),
+                CreateTone(1040f, 1460f, 0.11f, Waveform.Sine, 0.032f, 0.012f)
+            ));
         }
 
         public void ModeOption()
