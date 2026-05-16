@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using LastLight.Core;
 using LastLight.Data;
 using LastLight.Gameplay;
@@ -52,10 +53,13 @@ namespace LastLight.UI
                 UnityEngine.Object.Destroy(legacyModule);
             }
 
-            if (eventSystem.GetComponent<InputSystemUIInputModule>() == null)
+            var inputModule = eventSystem.GetComponent<InputSystemUIInputModule>();
+            if (inputModule == null)
             {
-                eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+                inputModule = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
             }
+
+            ConfigureInputSystemUi(inputModule);
 #else
             if (eventSystem.GetComponent<StandaloneInputModule>() == null)
             {
@@ -63,11 +67,56 @@ namespace LastLight.UI
             }
 #endif
         }
+
+#if ENABLE_INPUT_SYSTEM
+        private static void ConfigureInputSystemUi(InputSystemUIInputModule inputModule)
+        {
+            inputModule.point = CreateActionReference("Point", InputActionType.PassThrough, "<Pointer>/position");
+            inputModule.leftClick = CreateActionReference("LeftClick", InputActionType.PassThrough, "<Pointer>/press");
+            inputModule.rightClick = CreateActionReference("RightClick", InputActionType.PassThrough, "<Mouse>/rightButton");
+            inputModule.middleClick = CreateActionReference("MiddleClick", InputActionType.PassThrough, "<Mouse>/middleButton");
+            inputModule.scrollWheel = CreateActionReference("ScrollWheel", InputActionType.PassThrough, "<Mouse>/scroll");
+            inputModule.move = CreateMoveActionReference();
+            inputModule.submit = CreateActionReference("Submit", InputActionType.Button, "<Keyboard>/enter", "<Gamepad>/buttonSouth");
+            inputModule.cancel = CreateActionReference("Cancel", InputActionType.Button, "<Keyboard>/escape", "<Gamepad>/buttonEast");
+        }
+
+        private static InputActionReference CreateActionReference(string name, InputActionType type, params string[] bindings)
+        {
+            var action = new InputAction($"LastLight/{name}", type);
+            foreach (var binding in bindings)
+            {
+                action.AddBinding(binding);
+            }
+
+            action.Enable();
+            return InputActionReference.Create(action);
+        }
+
+        private static InputActionReference CreateMoveActionReference()
+        {
+            var action = new InputAction("LastLight/Move", InputActionType.PassThrough);
+            action.AddCompositeBinding("2DVector")
+                .With("Up", "<Keyboard>/upArrow")
+                .With("Down", "<Keyboard>/downArrow")
+                .With("Left", "<Keyboard>/leftArrow")
+                .With("Right", "<Keyboard>/rightArrow");
+            action.AddCompositeBinding("2DVector")
+                .With("Up", "<Keyboard>/w")
+                .With("Down", "<Keyboard>/s")
+                .With("Left", "<Keyboard>/a")
+                .With("Right", "<Keyboard>/d");
+            action.AddBinding("<Gamepad>/leftStick");
+            action.Enable();
+            return InputActionReference.Create(action);
+        }
+#endif
     }
 
     public sealed class LastLightGameController : MonoBehaviour
     {
         private readonly LastLightGameSession session = new();
+        private readonly List<LastLightFallbackButton> fallbackButtons = new();
 
         private Canvas canvas;
         private RectTransform frame;
@@ -99,6 +148,7 @@ namespace LastLight.UI
         private bool lastRunNewBest;
         private bool updatingSettingsControls;
         private float introEndsAt;
+        private float lastDirectPointerTime;
 
         private Font defaultFont;
 
@@ -172,6 +222,7 @@ namespace LastLight.UI
                 LastLightApp.Instance.Progress.settings.deathFlashesEnabled);
 
             HandleKeyboardInput();
+            HandleDirectPointerInput();
             UpdateVisibleState();
         }
 
@@ -205,12 +256,11 @@ namespace LastLight.UI
             fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
             fitter.aspectRatio = 9f / 16f;
 
-            var gameplayObject = new GameObject("GameplayView", typeof(RectTransform), typeof(LastLightGameplayView), typeof(LastLightGameplayInput));
+            var gameplayObject = new GameObject("GameplayView", typeof(RectTransform), typeof(LastLightGameplayView));
             gameplayObject.transform.SetParent(frame, false);
             Stretch(gameplayObject.GetComponent<RectTransform>());
             gameplayView = gameplayObject.GetComponent<LastLightGameplayView>();
             gameplayView.raycastTarget = true;
-            gameplayObject.GetComponent<LastLightGameplayInput>().Initialize(this);
 
             scoreText = CreateText("Score", frame, "00", 72, TextAnchor.MiddleCenter, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -118f), new Vector2(420f, 110f));
             AddGlow(scoreText.gameObject, 0.55f);
@@ -391,7 +441,6 @@ namespace LastLight.UI
             colors.pressedColor = filled ? new Color(0.72f, 0.72f, 0.72f, 1f) : new Color(1f, 1f, 1f, 0.22f);
             colors.selectedColor = colors.highlightedColor;
             button.colors = colors;
-            button.onClick.AddListener(() => onClick?.Invoke());
 
             var text = CreateText("Label", buttonObject.transform, label, fontSize, TextAnchor.MiddleCenter, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, filled ? Color.black : Color.white);
             Stretch(text.rectTransform);
@@ -403,6 +452,10 @@ namespace LastLight.UI
             {
                 AddGlow(buttonObject, 0.28f);
             }
+
+            var fallbackButton = buttonObject.AddComponent<LastLightFallbackButton>();
+            fallbackButton.Configure(onClick);
+            fallbackButtons.Add(fallbackButton);
 
             return buttonObject;
         }
@@ -498,15 +551,104 @@ namespace LastLight.UI
 
         private void HandleKeyboardInput()
         {
-            if (LastLightApp.Instance.State != AppState.Playing || showExitConfirm || showRestartConfirm)
-            {
-                return;
-            }
-
 #if ENABLE_INPUT_SYSTEM
             var keyboard = Keyboard.current;
             if (keyboard != null)
             {
+                if (showExitConfirm)
+                {
+                    if (keyboard.escapeKey.wasPressedThisFrame)
+                    {
+                        RunOption(() => SetExitConfirm(false));
+                    }
+                    else if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
+                    {
+                        RunOption(ReturnToMenu);
+                    }
+
+                    return;
+                }
+
+                if (showRestartConfirm)
+                {
+                    if (keyboard.escapeKey.wasPressedThisFrame)
+                    {
+                        RunOption(() => SetRestartConfirm(false));
+                    }
+                    else if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
+                    {
+                        RunOption(RestartCurrentMode);
+                    }
+
+                    return;
+                }
+
+                var state = LastLightApp.Instance.State;
+                if (state == AppState.Intro && keyboard.anyKey.wasPressedThisFrame)
+                {
+                    LastLightApp.Instance.ReturnToMenu();
+                    return;
+                }
+
+                if (state == AppState.Menu)
+                {
+                    if (keyboard.vKey.wasPressedThisFrame)
+                    {
+                        RunModeOption(() => StartMode(GameMode.Vertical));
+                    }
+                    else if (keyboard.hKey.wasPressedThisFrame)
+                    {
+                        RunModeOption(() => StartMode(GameMode.Horizontal));
+                    }
+                    else if (keyboard.sKey.wasPressedThisFrame)
+                    {
+                        RunOption(() => LastLightApp.Instance.OpenSettings());
+                    }
+
+                    return;
+                }
+
+                if (state == AppState.Settings)
+                {
+                    if (keyboard.escapeKey.wasPressedThisFrame || keyboard.backspaceKey.wasPressedThisFrame)
+                    {
+                        RunOption(() => LastLightApp.Instance.ReturnToMenu());
+                    }
+
+                    return;
+                }
+
+                if (state == AppState.GameOver)
+                {
+                    if (keyboard.rKey.wasPressedThisFrame || keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
+                    {
+                        RunOption(RestartCurrentMode);
+                    }
+                    else if (keyboard.escapeKey.wasPressedThisFrame || keyboard.hKey.wasPressedThisFrame)
+                    {
+                        RunOption(ReturnToMenu);
+                    }
+
+                    return;
+                }
+
+                if (state != AppState.Playing)
+                {
+                    return;
+                }
+
+                if (keyboard.escapeKey.wasPressedThisFrame)
+                {
+                    RunOption(() => SetExitConfirm(true));
+                    return;
+                }
+
+                if (keyboard.rKey.wasPressedThisFrame)
+                {
+                    RunOption(() => SetRestartConfirm(true));
+                    return;
+                }
+
                 if (session.Mode == GameMode.Horizontal)
                 {
                     if (keyboard.spaceKey.wasPressedThisFrame || keyboard.upArrowKey.wasPressedThisFrame)
@@ -527,6 +669,100 @@ namespace LastLight.UI
                 }
             }
 #elif ENABLE_LEGACY_INPUT_MANAGER
+            if (showExitConfirm)
+            {
+                if (Input.GetKeyDown(KeyCode.Escape))
+                {
+                    RunOption(() => SetExitConfirm(false));
+                }
+                else if (Input.GetKeyDown(KeyCode.Return))
+                {
+                    RunOption(ReturnToMenu);
+                }
+
+                return;
+            }
+
+            if (showRestartConfirm)
+            {
+                if (Input.GetKeyDown(KeyCode.Escape))
+                {
+                    RunOption(() => SetRestartConfirm(false));
+                }
+                else if (Input.GetKeyDown(KeyCode.Return))
+                {
+                    RunOption(RestartCurrentMode);
+                }
+
+                return;
+            }
+
+            var state = LastLightApp.Instance.State;
+            if (state == AppState.Intro && Input.anyKeyDown)
+            {
+                LastLightApp.Instance.ReturnToMenu();
+                return;
+            }
+
+            if (state == AppState.Menu)
+            {
+                if (Input.GetKeyDown(KeyCode.V))
+                {
+                    RunModeOption(() => StartMode(GameMode.Vertical));
+                }
+                else if (Input.GetKeyDown(KeyCode.H))
+                {
+                    RunModeOption(() => StartMode(GameMode.Horizontal));
+                }
+                else if (Input.GetKeyDown(KeyCode.S))
+                {
+                    RunOption(() => LastLightApp.Instance.OpenSettings());
+                }
+
+                return;
+            }
+
+            if (state == AppState.Settings)
+            {
+                if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.Backspace))
+                {
+                    RunOption(() => LastLightApp.Instance.ReturnToMenu());
+                }
+
+                return;
+            }
+
+            if (state == AppState.GameOver)
+            {
+                if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Return))
+                {
+                    RunOption(RestartCurrentMode);
+                }
+                else if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.H))
+                {
+                    RunOption(ReturnToMenu);
+                }
+
+                return;
+            }
+
+            if (state != AppState.Playing)
+            {
+                return;
+            }
+
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                RunOption(() => SetExitConfirm(true));
+                return;
+            }
+
+            if (Input.GetKeyDown(KeyCode.R))
+            {
+                RunOption(() => SetRestartConfirm(true));
+                return;
+            }
+
             if (session.Mode == GameMode.Horizontal)
             {
                 if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.UpArrow))
@@ -548,7 +784,96 @@ namespace LastLight.UI
 #endif
         }
 
-        public void HandleGameplayPointerDown()
+        private void HandleDirectPointerInput()
+        {
+            if (!TryReadPointerPress(out var screenPosition))
+            {
+                return;
+            }
+
+            if (Time.unscaledTime - lastDirectPointerTime < 0.04f)
+            {
+                return;
+            }
+
+            lastDirectPointerTime = Time.unscaledTime;
+
+            if (TryInvokeFallbackButton(screenPosition))
+            {
+                return;
+            }
+
+            if (LastLightApp.Instance.State == AppState.Intro)
+            {
+                LastLightApp.Instance.ReturnToMenu();
+                return;
+            }
+
+            if (LastLightApp.Instance.State == AppState.Playing && !showExitConfirm && !showRestartConfirm)
+            {
+                HandleGameplayPointerDown();
+            }
+        }
+
+        private bool TryInvokeFallbackButton(Vector2 screenPosition)
+        {
+            for (var i = fallbackButtons.Count - 1; i >= 0; i--)
+            {
+                var button = fallbackButtons[i];
+                if (button == null || !button.isActiveAndEnabled)
+                {
+                    continue;
+                }
+
+                if (button.TryClick(screenPosition))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadPointerPress(out Vector2 screenPosition)
+        {
+#if ENABLE_INPUT_SYSTEM
+            var mouse = Mouse.current;
+            if (mouse != null && mouse.leftButton.wasPressedThisFrame)
+            {
+                screenPosition = mouse.position.ReadValue();
+                return true;
+            }
+
+            var touchscreen = Touchscreen.current;
+            if (touchscreen != null)
+            {
+                foreach (var touch in touchscreen.touches)
+                {
+                    if (touch.press.wasPressedThisFrame)
+                    {
+                        screenPosition = touch.position.ReadValue();
+                        return true;
+                    }
+                }
+            }
+#elif ENABLE_LEGACY_INPUT_MANAGER
+            if (Input.GetMouseButtonDown(0))
+            {
+                screenPosition = Input.mousePosition;
+                return true;
+            }
+
+            if (Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began)
+            {
+                screenPosition = Input.GetTouch(0).position;
+                return true;
+            }
+#endif
+            screenPosition = Vector2.zero;
+            return false;
+        }
+
+        private void HandleGameplayPointerDown()
         {
             if (LastLightApp.Instance == null || LastLightApp.Instance.State != AppState.Playing || showExitConfirm || showRestartConfirm)
             {
@@ -800,18 +1125,35 @@ namespace LastLight.UI
         }
     }
 
-    public sealed class LastLightGameplayInput : MonoBehaviour, IPointerDownHandler
+    public sealed class LastLightFallbackButton : MonoBehaviour
     {
-        private LastLightGameController controller;
+        private RectTransform rectTransform;
+        private Action onClick;
 
-        public void Initialize(LastLightGameController owner)
+        private void Awake()
         {
-            controller = owner;
+            rectTransform = GetComponent<RectTransform>();
         }
 
-        public void OnPointerDown(PointerEventData eventData)
+        public void Configure(Action clickAction)
         {
-            controller?.HandleGameplayPointerDown();
+            onClick = clickAction;
+        }
+
+        public bool TryClick(Vector2 screenPosition)
+        {
+            if (rectTransform == null)
+            {
+                rectTransform = GetComponent<RectTransform>();
+            }
+
+            if (rectTransform == null || !RectTransformUtility.RectangleContainsScreenPoint(rectTransform, screenPosition, null))
+            {
+                return false;
+            }
+
+            onClick?.Invoke();
+            return true;
         }
     }
 }
