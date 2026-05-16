@@ -105,6 +105,7 @@ namespace LastLight.UI
         private void Awake()
         {
             DontDestroyOnLoad(gameObject);
+            ApplyRuntimeQualitySettings();
             defaultFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
             var legacyMenu = GameObject.Find("MainMenuCanvas");
@@ -187,6 +188,7 @@ namespace LastLight.UI
             scaler.referenceResolution = new Vector2(1080f, 1920f);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 1f;
+            scaler.dynamicPixelsPerUnit = 4f;
 
             var root = (RectTransform)canvasObject.transform;
             Stretch(root);
@@ -453,11 +455,30 @@ namespace LastLight.UI
             text.text = content;
             text.font = defaultFont;
             text.fontSize = fontSize;
+            text.fontStyle = FontStyle.Bold;
             text.alignment = alignment;
             text.color = color ?? Color.white;
+            text.alignByGeometry = true;
+            text.lineSpacing = 0.88f;
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Truncate;
             return text;
+        }
+
+        private static void ApplyRuntimeQualitySettings()
+        {
+            Application.targetFrameRate = 60;
+            Time.maximumDeltaTime = 0.05f;
+
+            if (QualitySettings.vSyncCount == 0)
+            {
+                QualitySettings.vSyncCount = 1;
+            }
+
+            if (QualitySettings.antiAliasing < 4)
+            {
+                QualitySettings.antiAliasing = 4;
+            }
         }
 
         private static void Stretch(RectTransform rect)

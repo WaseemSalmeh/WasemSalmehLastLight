@@ -264,15 +264,17 @@ namespace LastLight.UI
         private void DrawPlayerHorizontal(VertexHelper vh, HorizontalPlayer player, float width, float height, float camX)
         {
             var screen = ProjectHorizontal(player.X, player.Y, width, height, camX);
-            DrawRotatedBox(vh, screen, player.Size * HorizontalZoom, player.Size * HorizontalZoom, player.Rotation, player.ScaleX, player.ScaleY, Alpha(0.12f * glowIntensity), 1.75f);
-            DrawRotatedBox(vh, screen, player.Size * HorizontalZoom, player.Size * HorizontalZoom, player.Rotation, player.ScaleX, player.ScaleY, white, 1f);
+            DrawRoundedBox(vh, screen, player.Size * HorizontalZoom, player.Size * HorizontalZoom, player.Rotation, player.ScaleX, player.ScaleY, Alpha(0.05f * glowIntensity), 2.15f);
+            DrawRoundedBox(vh, screen, player.Size * HorizontalZoom, player.Size * HorizontalZoom, player.Rotation, player.ScaleX, player.ScaleY, Alpha(0.13f * glowIntensity), 1.55f);
+            DrawRoundedBox(vh, screen, player.Size * HorizontalZoom, player.Size * HorizontalZoom, player.Rotation, player.ScaleX, player.ScaleY, white, 1f);
         }
 
         private void DrawPlayerVertical(VertexHelper vh, VerticalPlayer player, float width, float height)
         {
             var screen = ProjectVertical(player.X, player.Y, width, height);
-            DrawRotatedBox(vh, screen, player.Size * VerticalZoom, player.Size * VerticalZoom, player.Rotation, player.ScaleX, player.ScaleY, Alpha(0.12f * glowIntensity), 1.75f);
-            DrawRotatedBox(vh, screen, player.Size * VerticalZoom, player.Size * VerticalZoom, player.Rotation, player.ScaleX, player.ScaleY, white, 1f);
+            DrawRoundedBox(vh, screen, player.Size * VerticalZoom, player.Size * VerticalZoom, player.Rotation, player.ScaleX, player.ScaleY, Alpha(0.05f * glowIntensity), 2.15f);
+            DrawRoundedBox(vh, screen, player.Size * VerticalZoom, player.Size * VerticalZoom, player.Rotation, player.ScaleX, player.ScaleY, Alpha(0.13f * glowIntensity), 1.55f);
+            DrawRoundedBox(vh, screen, player.Size * VerticalZoom, player.Size * VerticalZoom, player.Rotation, player.ScaleX, player.ScaleY, white, 1f);
         }
 
         private void DrawDashHorizontal(VertexHelper vh, HorizontalState state, float width, float height)
@@ -338,8 +340,7 @@ namespace LastLight.UI
             var tint = warningProgress > 0f ? new Color32(255, 214, 160, 255) : new Color32(125, 230, 255, 255);
             tint.a = (byte)Mathf.Clamp(Mathf.RoundToInt((0.58f * opacity + shield.HitFlash * 0.18f) * 255f), 0, 255);
 
-            var rect = rectTransform.rect;
-            AddScreenRect(vh, center.x - size * 0.5f, center.y - size * 0.5f, size, size, Alpha(0.08f * opacity), rect.width, rect.height);
+            DrawRoundedBox(vh, center, size, size, shield.Pulse * 0.08f, 1f, 1f, Alpha(0.08f * opacity), 1f);
             AddRing(vh, center, ringRadius, 1.7f, tint, 48, shield.Pulse * 0.9f);
             AddRing(vh, center, ringRadius - 7f, 1.1f, Alpha(0.22f * opacity), 48, -shield.Pulse);
 
@@ -525,21 +526,43 @@ namespace LastLight.UI
                 new Vector2(x, y + rectHeight));
         }
 
-        private void DrawRotatedBox(VertexHelper vh, Vector2 screenCenter, float boxWidth, float boxHeight, float rotation, float scaleX, float scaleY, Color32 color, float sizeMultiplier)
+        private void DrawRoundedBox(VertexHelper vh, Vector2 screenCenter, float boxWidth, float boxHeight, float rotation, float scaleX, float scaleY, Color32 color, float sizeMultiplier)
         {
             var rect = rectTransform.rect;
             var half = new Vector2(boxWidth * scaleX * sizeMultiplier * 0.5f, boxHeight * scaleY * sizeMultiplier * 0.5f);
+            var radius = Mathf.Min(half.x, half.y) * 0.32f;
             var cos = Mathf.Cos(rotation);
             var sin = Mathf.Sin(rotation);
-            var points = new[]
-            {
-                ToLocal(Rotate(new Vector2(-half.x, -half.y), cos, sin) + screenCenter, rect.width, rect.height),
-                ToLocal(Rotate(new Vector2(half.x, -half.y), cos, sin) + screenCenter, rect.width, rect.height),
-                ToLocal(Rotate(new Vector2(half.x, half.y), cos, sin) + screenCenter, rect.width, rect.height),
-                ToLocal(Rotate(new Vector2(-half.x, half.y), cos, sin) + screenCenter, rect.width, rect.height),
-            };
+            var points = new Vector2[28];
+            var index = 0;
+
+            AddRoundedCorner(points, ref index, new Vector2(half.x - radius, -half.y + radius), radius, -90f, 0f, screenCenter, cos, sin, rect);
+            AddRoundedCorner(points, ref index, new Vector2(half.x - radius, half.y - radius), radius, 0f, 90f, screenCenter, cos, sin, rect);
+            AddRoundedCorner(points, ref index, new Vector2(-half.x + radius, half.y - radius), radius, 90f, 180f, screenCenter, cos, sin, rect);
+            AddRoundedCorner(points, ref index, new Vector2(-half.x + radius, -half.y + radius), radius, 180f, 270f, screenCenter, cos, sin, rect);
 
             AddPolygon(vh, color, points);
+        }
+
+        private void AddRoundedCorner(
+            Vector2[] points,
+            ref int index,
+            Vector2 cornerCenter,
+            float radius,
+            float startAngle,
+            float endAngle,
+            Vector2 screenCenter,
+            float cos,
+            float sin,
+            Rect rect)
+        {
+            const int cornerSegments = 6;
+            for (var i = 0; i < cornerSegments + 1; i++)
+            {
+                var angle = Mathf.Lerp(startAngle, endAngle, i / (float)cornerSegments) * Mathf.Deg2Rad;
+                var point = cornerCenter + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+                points[index++] = ToLocal(Rotate(point, cos, sin) + screenCenter, rect.width, rect.height);
+            }
         }
 
         private static Vector2 Rotate(Vector2 point, float cos, float sin)

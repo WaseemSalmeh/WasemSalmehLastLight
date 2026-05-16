@@ -330,10 +330,12 @@ namespace LastLight.Gameplay
                 }
             }
 
+            state.FrameCount++;
             UpdateSharedMotion(
                 state.Particles,
                 state.Trail,
                 state.SpeedLines,
+                state.FrameCount,
                 state.Player.X,
                 state.Player.Y,
                 state.Player.Size,
@@ -355,7 +357,7 @@ namespace LastLight.Gameplay
 
             SpawnHorizontal(worldSpeed, factor);
             MoveAndCollideHorizontal(worldSpeed, factor);
-            UpdateScoreAndShield(dt, factor, true, dashStrength);
+            UpdateScoreAndShield(dt, true, dashStrength);
             UpdateShieldAnimation(ref state.Shield, dt);
 
             var camTargetX = (state.Player.X - state.Player.BaseX) * 0.3f;
@@ -514,10 +516,12 @@ namespace LastLight.Gameplay
                 AudioManager.Instance?.Land();
             }
 
+            state.FrameCount++;
             UpdateSharedMotion(
                 state.Particles,
                 state.Trail,
                 state.SpeedLines,
+                state.FrameCount,
                 state.Player.X,
                 state.Player.Y,
                 state.Player.Size,
@@ -539,7 +543,7 @@ namespace LastLight.Gameplay
 
             SpawnVertical(factor);
             MoveAndCollideVertical(worldSpeed, factor);
-            UpdateScoreAndShield(dt, factor, false, dashStrength);
+            UpdateScoreAndShield(dt, false, dashStrength);
             UpdateShieldAnimation(ref state.Shield, dt);
         }
 
@@ -629,7 +633,7 @@ namespace LastLight.Gameplay
             }
         }
 
-        private void UpdateScoreAndShield(float dt, float factor, bool horizontal, float dashStrength)
+        private void UpdateScoreAndShield(float dt, bool horizontal, float dashStrength)
         {
             var scoreRate = 0f;
             if (horizontal)
@@ -637,20 +641,20 @@ namespace LastLight.Gameplay
                 var state = Horizontal;
                 scoreRate = (6f + (state.Speed - HorizontalGameplayConfig.BaseSpeed) * 1.2f)
                     * (1f + dashStrength * HorizontalGameplayConfig.ShieldDashScoreBoost);
-                state.Score += dt * scoreRate * factor;
-                UpdateMilestoneAndShield(ref state.Shield, state.Score, state.LastMilestone, true, out state.LastMilestone);
+                state.Score += dt * scoreRate;
+                UpdateMilestoneAndShield(ref state.Shield, state.Score, state.LastMilestone, true, dt, out state.LastMilestone);
             }
             else
             {
                 var state = Vertical;
                 scoreRate = (6f + (state.Speed - VerticalGameplayConfig.BaseSpeed) * 1.2f)
                     * (1f + dashStrength * VerticalGameplayConfig.ShieldDashScoreBoost);
-                state.Score += dt * scoreRate * factor;
-                UpdateMilestoneAndShield(ref state.Shield, state.Score, state.LastMilestone, false, out state.LastMilestone);
+                state.Score += dt * scoreRate;
+                UpdateMilestoneAndShield(ref state.Shield, state.Score, state.LastMilestone, false, dt, out state.LastMilestone);
             }
         }
 
-        private void UpdateMilestoneAndShield(ref ShieldState shield, float score, int lastMilestone, bool horizontal, out int nextMilestone)
+        private void UpdateMilestoneAndShield(ref ShieldState shield, float score, int lastMilestone, bool horizontal, float dt, out int nextMilestone)
         {
             var shieldTriggered = false;
             var triggerScore = horizontal ? HorizontalGameplayConfig.ShieldInterval : VerticalGameplayConfig.ShieldInterval;
@@ -684,7 +688,7 @@ namespace LastLight.Gameplay
                 var warningWindow = horizontal
                     ? HorizontalGameplayConfig.ShieldWarningWindow
                     : VerticalGameplayConfig.ShieldWarningWindow;
-                shield.TimeLeft = Mathf.Max(0f, shield.TimeLeft - Time.unscaledDeltaTime);
+                shield.TimeLeft = Mathf.Max(0f, shield.TimeLeft - dt);
                 if (shield.TimeLeft > 0f && shield.TimeLeft <= warningWindow)
                 {
                     var warningProgress = 1f - shield.TimeLeft / warningWindow;
@@ -835,6 +839,7 @@ namespace LastLight.Gameplay
             List<Particle> particles,
             List<TrailPoint> trail,
             List<SpeedLine> speedLines,
+            int frameCount,
             float playerX,
             float playerY,
             float playerSize,
@@ -884,12 +889,12 @@ namespace LastLight.Gameplay
                 speedLines[i] = line;
             }
 
-            if (Time.frameCount % 2 == 0)
+            if (frameCount % 2 == 0)
             {
                 trail.Add(new TrailPoint(playerX, playerY, shieldActive ? 0.58f : 0.4f));
             }
 
-            if (shieldActive && Time.frameCount % 4 == 0)
+            if (shieldActive && frameCount % 4 == 0)
             {
                 particles.Add(new Particle
                 {
